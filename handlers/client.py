@@ -33,7 +33,7 @@ async def command_start(message: types.Message, state: FSMContext):
 
 @dp.callback_query_handler(Text(equals=course_choices), state=FSMClient.course)
 async def choice_course(callback_query: types.CallbackQuery, state: FSMContext):
-    asyncio.create_task(delete_message(callback_query.message))
+    await delete_message(callback_query.message)
     choice = callback_query.data
 
     if choice == "Не участвую":
@@ -59,7 +59,6 @@ async def choice_course(callback_query: types.CallbackQuery, state: FSMContext):
 @dp.callback_query_handler(Text(equals=ege_subjects), state=FSMClient.subjects)
 async def subjects(callback_query: types.CallbackQuery, state: FSMContext):
     await callback_query.answer()
-    asyncio.create_task(delete_message(callback_query.message))
     async with state.proxy() as data:
         if 'subjects' not in data:
             data['subjects'] = [callback_query.data]
@@ -67,11 +66,5 @@ async def subjects(callback_query: types.CallbackQuery, state: FSMContext):
             data['subjects'].append(callback_query.data)
         course, subjects = data['course'], data['subjects']
 
-    text = '\n'.join((
-        "Выбери предметы для подготовки",
-        "Но! помни, что предметы поменять не получится. А если добавить новые, то тебе будет приходить больше задач",
-        f"*Список предметов {course}*"
-    ))
     course = Course.ege if course == 'ЕГЭ' else Course.oge
-    await callback_query.message.answer(text, parse_mode=types.ParseMode.MARKDOWN,
-                                        reply_markup=create_client_kb(course, subjects))
+    await callback_query.message.edit_reply_markup(create_client_kb(course, subjects))
