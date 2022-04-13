@@ -1,12 +1,12 @@
-import asyncio
-
 from aiogram import types
 from aiogram.dispatcher import FSMContext
 from aiogram.dispatcher.filters import Text
 from aiogram.dispatcher.filters.state import State, StatesGroup
 
 from database.models import Course
-from keyboards.inline.client import course_choices, get_course_choice_kb, ege_subjects, create_client_kb
+from keyboards.inline.client import course_choices, get_course_choice_kb, ege_subjects, create_client_kb, \
+    default_time_interval_kb, default_time_interval_callback, time_intervals, time_interval_callback, \
+    get_time_interval_kb
 from loader import dp
 from services.messages import delete_message
 
@@ -14,6 +14,7 @@ from services.messages import delete_message
 class FSMClient(StatesGroup):
     course = State()
     subjects = State()
+    time_intervals = State()
 
 
 @dp.message_handler(commands=['start'])
@@ -26,6 +27,7 @@ async def command_start(message: types.Message, state: FSMContext):
         "[Можно подробнее ознакомиться со всем функциями бота вот тут] (https://www.google.com/)"
     ))
     await message.answer(text, parse_mode=types.ParseMode.MARKDOWN)
+    # TODO: проверить, первый раз ли пользователь запускает бота
     await message.answer("*Пожалуйста, выбери направление*", parse_mode=types.ParseMode.MARKDOWN,
                          reply_markup=get_course_choice_kb())
     await FSMClient.course.set()
@@ -68,3 +70,54 @@ async def subjects(callback_query: types.CallbackQuery, state: FSMContext):
 
     course = Course.ege if course == 'ЕГЭ' else Course.oge
     await callback_query.message.edit_reply_markup(create_client_kb(course, subjects))
+
+
+@dp.callback_query_handler(Text(equals="selected"), state=FSMClient.subjects)
+async def show_default_time_intervals(call: types.CallbackQuery):
+    await call.answer()
+    text = '\n'.join((
+        "Остался последний шаг.",
+        "Давай определимся со временем, когда ты сможешь отвечать на задачи"
+    ))
+    await call.message.answer(text, reply_markup=default_time_interval_kb)
+    await FSMClient.time_intervals.set()
+
+
+@dp.callback_query_handler(default_time_interval_callback.filter(choice="9AM-9PM"), state=FSMClient.time_intervals)
+async def show_final_message(call: types.CallbackQuery, state: FSMContext, choices: [str] = None):
+    await call.answer()
+    # await call.message.delete_reply_markup()
+    if choices is None:
+        choices = time_intervals
+    async with state.proxy() as data:
+        course, subjects = data['course'], data['subjects']
+    # TODO: сохранить выбранные направление, предметы и промежуток времени в бд
+    text = "Теперь мы готовы начинать. Пристегивайся, игра началась!"
+    await call.message.answer(text)
+    await state.finish()
+
+
+@dp.callback_query_handler(default_time_interval_callback.filter(choice="custom"), state=FSMClient.time_intervals)
+@dp.callback_query_handler(time_interval_callback.filter(), state=FSMClient.time_intervals)
+async def show_time_intervals(call: types.CallbackQuery, state: FSMContext, callback_data: dict):
+    await call.answer()
+    if callback_data["@"] == default_time_interval_callback.prefix:
+        await call.message.delete_reply_markup()
+        text = "Важно! Поменять интервал позже можно только раз. Так что подумай хорошенько)"
+        await call.message.answer(text, reply_markup=get_time_interval_kb())
+    elif callback_data["choice"] != "done":
+        chosen_time_interval = callback_data["choice"]
+        async with state.proxy() as data:
+            if "time_intervals" not in data:
+                data["time_intervals"] = [chosen_time_interval]
+            else:
+                data["time_intervals"].append(chosen_time_interval)
+            chosen_time_intervals = data["time_intervals"]
+        await call.message.edit_reply_markup(get_time_interval_kb(chosen_time_intervals))
+    else:
+        async with state.proxy() as data:
+            chosen_time_intervals = data.get("time_intervals")
+        if not chosen_time_intervals:
+            await call.answer("Пожалуйста, выбери хотя бы один интервал", show_alert=True)
+        else:
+            await show_final_message(call, state, choices=chosen_time_intervals)
