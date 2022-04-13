@@ -5,6 +5,7 @@ from aiogram import types
 from aiogram.dispatcher import FSMContext
 from aiogram.dispatcher.filters.state import StatesGroup, State
 from aiogram.utils.callback_data import CallbackData
+from aiogram.utils.exceptions import MessageNotModified
 
 from loader import dp
 
@@ -31,10 +32,12 @@ async def temp_new_task_notification(message: types.Message):
 
 @dp.callback_query_handler(state=TaskGroup.open)
 async def send_task(call: types.CallbackQuery, state: FSMContext):
+    await call.message.delete_reply_markup()
     current_timestamp = int(datetime.now().timestamp())
     notification_timestamp = int(call.data.split(':')[-1])
     if current_timestamp - notification_timestamp > 10 * 60:
         await call.message.answer("Дружок, прости, ты не успел :(")
+        await call.answer()
         await state.finish()
         return
 
@@ -54,21 +57,27 @@ async def send_task(call: types.CallbackQuery, state: FSMContext):
         ))
         for number in range(1, 4)
     ]])
-    await call.message.answer('\n'.join(header + text), types.ParseMode.HTML, reply_markup=keyboard)
+    msg = await call.message.answer('\n'.join(header + text), types.ParseMode.HTML, reply_markup=keyboard)
+    await call.answer()
     await TaskGroup.doing.set()
 
     await asyncio.sleep(5 * 60)
     header = ("<b><i>Упс... Время для ответа вышло :(</></>",)
-    await call.message.delete_reply_markup()
-    await call.message.edit_text('\n'.join(header + text), types.ParseMode.HTML)
+    try:
+        await msg.delete_reply_markup()
+    except MessageNotModified:
+        pass
+    else:
+        await msg.edit_text('\n'.join(header + text), types.ParseMode.HTML)
+        await state.finish()
 
 
 @dp.callback_query_handler(task_callback.filter(), state=TaskGroup.doing)
 async def check_answer(call: types.CallbackQuery, callback_data: dict, state: FSMContext):
-    await call.message.delete_reply_markup()
     user_choice, right_choice = int(callback_data["user_choice"]), int(callback_data["right_choice"])
 
     if user_choice == right_choice:
+        await call.message.delete_reply_markup()
         keyboard = types.InlineKeyboardMarkup(inline_keyboard=[[
             types.InlineKeyboardButton("Подробное решение", callback_data="detailed_solution")
         ]])
@@ -77,6 +86,7 @@ async def check_answer(call: types.CallbackQuery, callback_data: dict, state: FS
             "Совершенно верный ответ и отличная работа!"
         ))
         await call.message.answer(text, types.ParseMode.HTML, reply_markup=keyboard)
+        await call.answer()
         await TaskGroup.detailed_solution.set()
 
     else:
@@ -96,4 +106,5 @@ async def show_detailed_answer(call: types.CallbackQuery, state: FSMContext, inc
         header = ("Почти, ты был очень близок!", "Давай вместе посмотрим, более подробное решение:", "")
         text = header + text
     await call.message.answer('\n'.join(text))
+    await call.answer()
     await state.finish()
