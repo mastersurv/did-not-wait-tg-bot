@@ -66,6 +66,8 @@ async def subjects(callback_query: types.CallbackQuery, state: FSMContext):
             data['subjects'] = [callback_query.data]
         elif len(data['subjects']) < 5:
             data['subjects'].append(callback_query.data)
+        else:
+            return
         course, subjects = data['course'], data['subjects']
 
     course = Course.ege if course == 'ЕГЭ' else Course.oge
