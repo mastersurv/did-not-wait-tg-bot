@@ -15,7 +15,6 @@ default_time_interval_kb = InlineKeyboardMarkup(inline_keyboard=[[
     InlineKeyboardButton("Настроить под себя", callback_data=default_time_interval_callback.new("custom"))
 ]])
 time_intervals = ["9AM-1PM", "1PM-5PM", "5PM-9PM"]
-time_intervals_labels = ["С 9:00 до 13:00 МСК", "С 13:00 до 17:00 МСК", "С 17:00 до 21:00 МСК"]
 time_interval_callback = CallbackData("time_interval", "choice")
 
 
@@ -46,10 +45,11 @@ def create_client_kb(course: Course, subjects_with_checkmark: list[str]) -> Inli
     return keyboard
 
 
-def get_time_interval_kb(intervals_with_checkmark: list[str] = None):
+def get_time_interval_kb(intervals_with_checkmark: set[str] = None):
     include_done_button = intervals_with_checkmark is not None
     if intervals_with_checkmark is None:
-        intervals_with_checkmark = []
+        intervals_with_checkmark = set()
+    time_intervals_labels = ["С 9:00 до 13:00 МСК", "С 13:00 до 17:00 МСК", "С 17:00 до 21:00 МСК"]
     for index, time_interval_label in enumerate(time_intervals_labels):
         if time_intervals[index] in intervals_with_checkmark:
             time_intervals_labels[index] = "✅ " + time_interval_label

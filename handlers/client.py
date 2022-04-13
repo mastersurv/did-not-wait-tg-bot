@@ -110,10 +110,12 @@ async def show_time_intervals(call: types.CallbackQuery, state: FSMContext, call
         chosen_time_interval = callback_data["choice"]
         async with state.proxy() as data:
             if "time_intervals" not in data:
-                data["time_intervals"] = [chosen_time_interval]
+                data["time_intervals"] = {chosen_time_interval}
+            elif chosen_time_interval not in data["time_intervals"]:
+                data["time_intervals"].add(chosen_time_interval)
             else:
-                data["time_intervals"].append(chosen_time_interval)
-            chosen_time_intervals = data["time_intervals"]
+                return
+            chosen_time_intervals: set[str] = data["time_intervals"]
         await call.message.edit_reply_markup(get_time_interval_kb(chosen_time_intervals))
     else:
         async with state.proxy() as data:
