@@ -3,19 +3,19 @@ import logging
 from aiogram import executor
 
 # noinspection PyUnresolvedReferences
-# import filters
+import filters
 # noinspection PyUnresolvedReferences
 import handlers
-from loader import dp, bot
+from loader import dp, db, bot
 from services.default import set_default_commands, on_startup_notify, on_shutdown_notify
 
 
 async def on_startup(dispatcher):
-    # logging.info("Создаем подключение к базе данных")
-    # await db.create_pool()
-    #
-    # logging.info("Создаем таблицы в базе данных, если такие еще не были созданы")
-    # await db.create_standard_tables()
+    logging.info("Создаем подключение к базе данных")
+    await db.create_pool()
+
+    logging.info("Создаем таблицы в базе данных, если такие еще не были созданы")
+    await db.create_standard_tables()
 
     await set_default_commands(dispatcher)
 
