@@ -86,7 +86,6 @@ async def show_default_time_intervals(call: types.CallbackQuery):
 @dp.callback_query_handler(default_time_interval_callback.filter(choice="9AM-9PM"), state=FSMClient.time_intervals)
 async def show_final_message(call: types.CallbackQuery, state: FSMContext, choices: [str] = None):
     await call.answer()
-    # await call.message.delete_reply_markup()
     if choices is None:
         choices = time_intervals
     async with state.proxy() as data:
