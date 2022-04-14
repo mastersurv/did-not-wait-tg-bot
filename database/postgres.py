@@ -146,6 +146,10 @@ class Database:
         subjects: list[str] = [subject_row['subject'] for subject_row in subjects_rows]
         return self.get_user_model(user_row, subjects)
 
+    async def user_id_present(self, telegram_id: int) -> bool:
+        query = "SELECT telegram_id FROM users WHERE telegram_id = $1"
+        return await self._execute(query, telegram_id, fetch_val=True) is not None
+
     # select example: SELECT
     #                     count(*)
     #                 FROM users_statistics
