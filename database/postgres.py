@@ -1,3 +1,4 @@
+import logging
 from typing import Optional
 
 import asyncpg
@@ -65,27 +66,82 @@ class Database:
         CREATE TABLE IF NOT EXISTS users (
             telegram_id BIGINT PRIMARY KEY,
             full_name VARCHAR(255) NOT NULL,
-            username VARCHAR(255)
+            direction VARCHAR(10) NOT NULL, -- егэ или огэ
+            interval INT NOT NULL -- от 1 до 7 включительно
+        )
+        """
+        await self._execute(query)
+
+    async def _create_table_subjects(self):
+        query = """
+        CREATE TABLE IF NOT EXISTS subjects (
+            telegram_id BIGINT NOT NULL,
+            subject VARCHAR(100) NOT NULL,
+            CONSTRAINT subjects_pk PRIMARY KEY (telegram_id, subject)
+        )
+        """
+        await self._execute(query)
+
+    async def _create_table_tasks(self):
+        query = """
+        CREATE TABLE IF NOT EXISTS tasks (
+            id BIGINT PRIMARY KEY,
+            text TEXT NOT NULL,
+            variant1 VARCHAR(500) NOT NULL,
+            variant2 VARCHAR(500) NOT NULL,
+            variant3 VARCHAR(500) NOT NULL,
+            right_variant INT NOT NULL, -- 1, 2 или 3
+            solution TEXT NOT NULL,
+            subject VARCHAR(100) NOT NULL,
+            direction VARCHAR(10) NOT NULL, -- егэ или огэ
+            subtheme VARCHAR(150) NOT NULL
         )
         """
         await self._execute(query)
 
     async def create_standard_tables(self):
         await self._create_table_users()
+        await self._create_table_subjects()
+        await self._create_table_tasks()
 
     # section: Static methods
 
     @staticmethod
-    def get_user_model_from_row_record(user_row_record: Record):
+    def get_user_model(user_row_record: Record, subjects: list[str]):
         return User(
             telegram_id=user_row_record['telegram_id'],
             full_name=user_row_record['full_name'],
-            username=user_row_record['username']
+            direction=user_row_record['direction'],
+            interval=user_row_record['interval'],
+            subjects=subjects
         )
 
     # section: Working with table users
 
-    ...
+    async def add_user(self, telegram_id: int, full_name: str, direction: str, interval: str,
+                       subjects: list[str]) -> bool:
+        query = "INSERT INTO users (telegram_id, full_name, direction, interval) " \
+                "VALUES ($1, $2, $3, $4)"
+        try:
+            await self._execute(query, telegram_id, full_name, direction, interval)
+        except Exception:
+            # такой пользователь уже есть в таблице
+            return False
+        query = "INSERT INTO subjects (telegram_id, subject) VALUES ($1, $2)"
+        for subject in subjects:
+            try:
+                await self._execute(query, telegram_id, subject)
+            except Exception as err:
+                logging.error(f"Возникла ошибка при создании пользователя {telegram_id}: {err}")
+        return True
+
+    async def get_user(self, telegram_id: int) -> User:
+        query = "SELECT telegram_id, full_name, direction, interval FROM users WHERE telegram_id = $1"
+        user_row = await self._execute(query, telegram_id, fetch_row=True)
+        query = "SELECT subject FROM subjects WHERE telegram_id = $1"
+        subjects_rows = await self._execute(query, telegram_id, fetch_all=True)
+        subjects: list[str] = [subject_row['subject'] for subject_row in subjects_rows]
+        return self.get_user_model(user_row, subjects)
 
     # select example: SELECT
     #                     count(*)
