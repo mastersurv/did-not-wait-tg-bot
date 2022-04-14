@@ -6,7 +6,7 @@ from aiogram.dispatcher.filters.state import State, StatesGroup
 from database.models import Course
 from keyboards.inline.client import course_choices, get_course_choice_kb, ege_subjects, create_client_kb, \
     default_time_interval_kb, default_time_interval_callback, time_intervals, time_interval_callback, \
-    get_time_interval_kb
+    get_time_interval_kb, create_yes_or_cancel_kb
 from loader import dp
 from services.messages import delete_message
 
@@ -14,6 +14,7 @@ from services.messages import delete_message
 class FSMClient(StatesGroup):
     course = State()
     subjects = State()
+    sureness = State()
     time_intervals = State()
 
 
@@ -75,14 +76,41 @@ async def subjects(callback_query: types.CallbackQuery, state: FSMContext):
 
 
 @dp.callback_query_handler(Text(equals="selected"), state=FSMClient.subjects)
-async def show_default_time_intervals(call: types.CallbackQuery):
+async def show_default_time_intervals(call: types.CallbackQuery, state: FSMContext):
     await call.answer()
-    text = '\n'.join((
-        "Остался последний шаг.",
-        "Давай определимся со временем, когда ты сможешь отвечать на задачи"
-    ))
-    await call.message.answer(text, reply_markup=default_time_interval_kb)
-    await FSMClient.time_intervals.set()
+    await delete_message(call.message)
+    async with state.proxy() as data:
+        list_subjects = "\n".join(data['subjects'])
+        await call.message.answer(f"Ты выбрал такие предметы:\n{list_subjects}\nВсё верно?",
+                                  reply_markup=create_yes_or_cancel_kb())
+    await FSMClient.sureness.set()
+
+
+@dp.callback_query_handler(Text(equals=["yes", "change"]), state=FSMClient.sureness)
+async def yes_or_change(call: types.CallbackQuery, state: FSMContext):
+    await call.answer()
+    if call.data == "yes":
+        await delete_message(call.message)
+        text = '\n'.join((
+            "Остался последний шаг.",
+            "Давай определимся со временем, когда ты сможешь отвечать на задачи"
+        ))
+        await call.message.answer(text, reply_markup=default_time_interval_kb)
+        await FSMClient.time_intervals.set()
+    elif call.data == "change":
+        await delete_message(call.message)
+        async with state.proxy() as data:
+            data['subjects'].clear()
+            course, subjects = data['course'], data['subjects']
+            course = Course.ege if course == 'ЕГЭ' else Course.oge
+            text = '\n'.join((
+                "Выбери предметы для подготовки",
+                "Но! помни, что предметы поменять не получится. А если добавить новые, то тебе будет приходить больше задач",
+                f"*Список предметов {data['course']}*"
+            ))
+            await call.message.answer(text, parse_mode=types.ParseMode.MARKDOWN,
+                                      reply_markup=create_client_kb(course, []))
+            await FSMClient.subjects.set()
 
 
 @dp.callback_query_handler(default_time_interval_callback.filter(choice="9AM-9PM"), state=FSMClient.time_intervals)

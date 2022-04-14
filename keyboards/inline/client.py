@@ -45,6 +45,14 @@ def create_client_kb(course: Course, subjects_with_checkmark: list[str]) -> Inli
     return keyboard
 
 
+def create_yes_or_cancel_kb() -> InlineKeyboardMarkup:
+    buttons = [InlineKeyboardButton("Да", callback_data="yes"),
+               InlineKeyboardButton("Изменить", callback_data="change")]
+    keyboard = InlineKeyboardMarkup(row_width=2)
+    keyboard.add(*buttons)
+    return keyboard
+
+
 def get_time_interval_kb(intervals_with_checkmark: set[str] = None):
     include_done_button = intervals_with_checkmark is not None
     if intervals_with_checkmark is None:
