@@ -135,9 +135,12 @@ class Database:
                 logging.error(f"Возникла ошибка при создании пользователя {telegram_id}: {err}")
         return True
 
-    async def get_user(self, telegram_id: int) -> User:
+    async def get_user(self, telegram_id: int) -> User | None:
         query = "SELECT telegram_id, full_name, direction, interval FROM users WHERE telegram_id = $1"
         user_row = await self._execute(query, telegram_id, fetch_row=True)
+        if user_row is None:
+            return None
+
         query = "SELECT subject FROM subjects WHERE telegram_id = $1"
         subjects_rows = await self._execute(query, telegram_id, fetch_all=True)
         subjects: list[str] = [subject_row['subject'] for subject_row in subjects_rows]

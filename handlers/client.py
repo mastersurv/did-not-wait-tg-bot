@@ -7,7 +7,8 @@ from database.models import Course
 from keyboards.inline.client import course_choices, get_course_choice_kb, ege_subjects, create_client_kb, \
     default_time_interval_kb, default_time_interval_callback, time_intervals, time_interval_callback, \
     get_time_interval_kb, create_yes_or_cancel_kb
-from loader import dp
+from loader import dp, db
+from services.interval import get_interval_from_choices
 from services.messages import delete_message
 
 
@@ -28,10 +29,11 @@ async def command_start(message: types.Message, state: FSMContext):
         "[Можно подробнее ознакомиться со всем функциями бота вот тут] (https://www.google.com/)"
     ))
     await message.answer(text, parse_mode=types.ParseMode.MARKDOWN)
-    # TODO: проверить, первый раз ли пользователь запускает бота
-    await message.answer("*Пожалуйста, выбери направление*", parse_mode=types.ParseMode.MARKDOWN,
-                         reply_markup=get_course_choice_kb())
-    await FSMClient.course.set()
+    user = await db.get_user(message.from_user.id)
+    if user is None:
+        await message.answer("*Пожалуйста, выбери направление*", parse_mode=types.ParseMode.MARKDOWN,
+                             reply_markup=get_course_choice_kb())
+        await FSMClient.course.set()
 
 
 @dp.callback_query_handler(Text(equals=course_choices), state=FSMClient.course)
@@ -114,13 +116,15 @@ async def yes_or_change(call: types.CallbackQuery, state: FSMContext):
 
 
 @dp.callback_query_handler(default_time_interval_callback.filter(choice="9AM-9PM"), state=FSMClient.time_intervals)
-async def show_final_message(call: types.CallbackQuery, state: FSMContext, choices: [str] = None):
+async def show_final_message(call: types.CallbackQuery, state: FSMContext, choices: list[str] = None):
     await call.answer()
     if choices is None:
         choices = time_intervals
     async with state.proxy() as data:
         course, subjects = data['course'], data['subjects']
-    # TODO: сохранить выбранные направление, предметы и промежуток времени в бд
+    interval = get_interval_from_choices(choices)
+    await db.add_user(call.message.from_user.id, call.message.from_user.full_name,
+                      course, interval, subjects)
     text = "Теперь мы готовы начинать. Пристегивайся, игра началась!"
     await call.message.answer(text)
     await state.finish()
