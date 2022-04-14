@@ -116,13 +116,13 @@ async def yes_or_change(call: types.CallbackQuery, state: FSMContext):
 
 
 @dp.callback_query_handler(default_time_interval_callback.filter(choice="9AM-9PM"), state=FSMClient.time_intervals)
-async def show_final_message(call: types.CallbackQuery, state: FSMContext, choices: list[str] = None):
+async def show_final_message(call: types.CallbackQuery, state: FSMContext, choices: set[str] = None):
     await call.answer()
     if choices is None:
         choices = time_intervals
     async with state.proxy() as data:
         course, subjects = data['course'], data['subjects']
-    interval = get_interval_from_choices(choices)
+    interval = get_interval_from_choices(list(choices))
     await db.add_user(call.message.from_user.id, call.message.from_user.full_name,
                       course, interval, subjects)
     text = "Теперь мы готовы начинать. Пристегивайся, игра началась!"
