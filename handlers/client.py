@@ -7,7 +7,8 @@ from database.models import Course
 from keyboards.inline.client import course_choices, get_course_choice_kb, ege_subjects, create_client_kb, \
     default_time_interval_kb, default_time_interval_callback, time_intervals, time_interval_callback, \
     get_time_interval_kb, create_yes_or_cancel_kb
-from loader import dp
+from loader import dp, db
+from services.interval import get_interval_from_choices
 from services.messages import delete_message
 
 
@@ -20,18 +21,30 @@ class FSMClient(StatesGroup):
 
 @dp.message_handler(commands=['start'])
 async def command_start(message: types.Message, state: FSMContext):
-    text = '\n'.join((
-        "• Я отправляю тебе задачу в рандомное время, за исключением, когда тебе совсем неудобно отвечать. "
-        "Ее можно решить без ручек и листочков",
-        "• У тебя есть варианты ответа и 5 минут на ее решение",
-        "• В конце каждой недели я отправляю тебе рекомендации по темам, которые было бы неплохо повторить",
-        "[Можно подробнее ознакомиться со всем функциями бота вот тут] (https://www.google.com/)"
+    text0 = '\n'.join((
+        "Но все не так скучно, как ты мог подумать! Кроме учебы у меня ",
+        "также есть сюрприз для тебя - подарки от Умскул:",
+        "• фирменные стикеры Умскул;",
+        "• скидку на курс Предбанник!",
+        "*С каждым ответом ты будешь становиться все ближе к этим *"
+        "*плюшкам от меня :)*",
+        "Расскажу, как буду тебя проверять 👇",
     ))
-    await message.answer(text, parse_mode=types.ParseMode.MARKDOWN)
-    # TODO: проверить, первый раз ли пользователь запускает бота
-    await message.answer("*Пожалуйста, выбери направление*", parse_mode=types.ParseMode.MARKDOWN,
-                         reply_markup=get_course_choice_kb())
-    await FSMClient.course.set()
+    text1 = '\n'.join((
+        "*Вот так я буду работать: *",
+        "• Отправляю тебе задание в рандомное время (промежуток времени ты "
+        "выберешь позже);"
+        "• У тебя есть варианты ответа и 5 минут на решение тестового задания;",
+        "• Вместе мы разбираем ответ;",
+        "• В конце каждой недели я отправляю тебе рекомендации по темам, ",
+        "которые стоит повторить"
+    ))
+    await message.answer(text0, parse_mode=types.ParseMode.MARKDOWN)
+    await message.answer(text1, parse_mode=types.ParseMode.MARKDOWN)
+    if not await db.user_id_present(message.from_user.id):
+        await message.answer("*Так, а теперь давай зададим все параметры! \nПожалуйста, выбери направление*",
+                             parse_mode=types.ParseMode.MARKDOWN, reply_markup=get_course_choice_kb())
+        await FSMClient.course.set()
 
 
 @dp.callback_query_handler(Text(equals=course_choices), state=FSMClient.course)
@@ -50,10 +63,12 @@ async def choice_course(callback_query: types.CallbackQuery, state: FSMContext):
 
     text = '\n'.join((
         "Выбери предметы для подготовки",
-        "Но! помни, что предметы поменять не получится. А если добавить новые, то тебе будет приходить больше задач",
+        "Но! помни, что убрать предметы не получится. А если добавишь ",
+        "слишком много, то будь готов попотеть :)",
+        "Нажимай на предметы, которые тебе нужны, а потом Готово",
         f"*Список предметов {choice}*"
     ))
-    course = Course.ege if choice == 'ЕГЭ' else Course.oge
+    course = Course.ege if choice == 'егэ' else Course.oge
     await callback_query.message.answer(text, parse_mode=types.ParseMode.MARKDOWN,
                                         reply_markup=create_client_kb(course, []))
     await FSMClient.next()
@@ -71,7 +86,7 @@ async def subjects(callback_query: types.CallbackQuery, state: FSMContext):
             return
         course, subjects = data['course'], data['subjects']
 
-    course = Course.ege if course == 'ЕГЭ' else Course.oge
+    course = Course.ege if course == 'егэ' else Course.oge
     await callback_query.message.edit_reply_markup(create_client_kb(course, subjects))
 
 
@@ -102,7 +117,7 @@ async def yes_or_change(call: types.CallbackQuery, state: FSMContext):
         async with state.proxy() as data:
             data['subjects'].clear()
             course, subjects = data['course'], data['subjects']
-            course = Course.ege if course == 'ЕГЭ' else Course.oge
+            course = Course.ege if course == 'егэ' else Course.oge
             text = '\n'.join((
                 "Выбери предметы для подготовки",
                 "Но! помни, что предметы поменять не получится. А если добавить новые, то тебе будет приходить больше задач",
@@ -114,13 +129,17 @@ async def yes_or_change(call: types.CallbackQuery, state: FSMContext):
 
 
 @dp.callback_query_handler(default_time_interval_callback.filter(choice="9AM-9PM"), state=FSMClient.time_intervals)
-async def show_final_message(call: types.CallbackQuery, state: FSMContext, choices: [str] = None):
+async def show_final_message(call: types.CallbackQuery, state: FSMContext, choices: set[str] = None):
     await call.answer()
     if choices is None:
         choices = time_intervals
+    else:
+        choices = list(choices)
     async with state.proxy() as data:
         course, subjects = data['course'], data['subjects']
-    # TODO: сохранить выбранные направление, предметы и промежуток времени в бд
+    interval = get_interval_from_choices(choices)
+    await db.add_user(call.from_user.id, call.from_user.full_name,
+                      course, interval, subjects)
     text = "Теперь мы готовы начинать. Пристегивайся, игра началась!"
     await call.message.answer(text)
     await state.finish()
@@ -132,7 +151,7 @@ async def show_time_intervals(call: types.CallbackQuery, state: FSMContext, call
     await call.answer()
     if callback_data["@"] == default_time_interval_callback.prefix:
         await call.message.delete_reply_markup()
-        text = "Важно! Поменять интервал позже можно только раз. Так что подумай хорошенько)"
+        text = "Важно! Поменять интервал можно будет только один раз. Так что подумай хорошенько)"
         await call.message.answer(text, reply_markup=get_time_interval_kb())
     elif callback_data["choice"] != "done":
         chosen_time_interval = callback_data["choice"]
