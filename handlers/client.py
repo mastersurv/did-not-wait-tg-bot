@@ -7,7 +7,8 @@ from database.models import Course
 from keyboards.inline.client import course_choices, get_course_choice_kb, ege_subjects, create_client_kb, \
     default_time_interval_kb, default_time_interval_callback, time_intervals, time_interval_callback, \
     get_time_interval_kb, create_yes_or_cancel_kb
-from loader import dp
+from loader import dp, db
+from services.interval import get_interval_from_choices
 from services.messages import delete_message
 
 
@@ -28,10 +29,10 @@ async def command_start(message: types.Message, state: FSMContext):
         "[Можно подробнее ознакомиться со всем функциями бота вот тут] (https://www.google.com/)"
     ))
     await message.answer(text, parse_mode=types.ParseMode.MARKDOWN)
-    # TODO: проверить, первый раз ли пользователь запускает бота
-    await message.answer("*Пожалуйста, выбери направление*", parse_mode=types.ParseMode.MARKDOWN,
-                         reply_markup=get_course_choice_kb())
-    await FSMClient.course.set()
+    if not await db.user_id_present(message.from_user.id):
+        await message.answer("*Пожалуйста, выбери направление*", parse_mode=types.ParseMode.MARKDOWN,
+                             reply_markup=get_course_choice_kb())
+        await FSMClient.course.set()
 
 
 @dp.callback_query_handler(Text(equals=course_choices), state=FSMClient.course)
@@ -53,7 +54,7 @@ async def choice_course(callback_query: types.CallbackQuery, state: FSMContext):
         "Но! помни, что предметы поменять не получится. А если добавить новые, то тебе будет приходить больше задач",
         f"*Список предметов {choice}*"
     ))
-    course = Course.ege if choice == 'ЕГЭ' else Course.oge
+    course = Course.ege if choice == 'егэ' else Course.oge
     await callback_query.message.answer(text, parse_mode=types.ParseMode.MARKDOWN,
                                         reply_markup=create_client_kb(course, []))
     await FSMClient.next()
@@ -71,7 +72,7 @@ async def subjects(callback_query: types.CallbackQuery, state: FSMContext):
             return
         course, subjects = data['course'], data['subjects']
 
-    course = Course.ege if course == 'ЕГЭ' else Course.oge
+    course = Course.ege if course == 'егэ' else Course.oge
     await callback_query.message.edit_reply_markup(create_client_kb(course, subjects))
 
 
@@ -102,7 +103,7 @@ async def yes_or_change(call: types.CallbackQuery, state: FSMContext):
         async with state.proxy() as data:
             data['subjects'].clear()
             course, subjects = data['course'], data['subjects']
-            course = Course.ege if course == 'ЕГЭ' else Course.oge
+            course = Course.ege if course == 'егэ' else Course.oge
             text = '\n'.join((
                 "Выбери предметы для подготовки",
                 "Но! помни, что предметы поменять не получится. А если добавить новые, то тебе будет приходить больше задач",
@@ -114,13 +115,17 @@ async def yes_or_change(call: types.CallbackQuery, state: FSMContext):
 
 
 @dp.callback_query_handler(default_time_interval_callback.filter(choice="9AM-9PM"), state=FSMClient.time_intervals)
-async def show_final_message(call: types.CallbackQuery, state: FSMContext, choices: [str] = None):
+async def show_final_message(call: types.CallbackQuery, state: FSMContext, choices: set[str] = None):
     await call.answer()
     if choices is None:
         choices = time_intervals
+    else:
+        choices = list(choices)
     async with state.proxy() as data:
         course, subjects = data['course'], data['subjects']
-    # TODO: сохранить выбранные направление, предметы и промежуток времени в бд
+    interval = get_interval_from_choices(choices)
+    await db.add_user(call.from_user.id, call.from_user.full_name,
+                      course, interval, subjects)
     text = "Теперь мы готовы начинать. Пристегивайся, игра началась!"
     await call.message.answer(text)
     await state.finish()
